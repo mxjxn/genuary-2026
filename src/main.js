@@ -9,15 +9,15 @@ import { createBridge } from './framework/bridge.js';
 
 // Import prompts (add new prompts here as they're created)
 import { Day01 } from './prompts/day01.js';
+import { Day02 } from './prompts/day02.js';
 
 /**
  * Registry of available prompts
  * Add new prompts here: { day: number, name: string, class: PromptClass }
  */
 const PROMPTS = [
-  { day: 1, name: 'Day 1', class: Day01 },
-  // Add more prompts as they're created:
-  // { day: 2, name: 'Day 2', class: Day02 },
+  { day: 1, name: 'Day 1: Polyrhythms', class: Day01 },
+  { day: 2, name: 'Day 2: Layers', class: Day02 },
 ];
 
 let currentP5Instance = null;
@@ -41,8 +41,8 @@ async function init() {
     // Set up start button handler
     setupStartButton();
 
-    // Start with first available prompt (or day 1 if available)
-    const defaultDay = PROMPTS.length > 0 ? PROMPTS[0].day : 1;
+    // Start with most recent available prompt
+    const defaultDay = PROMPTS.length > 0 ? PROMPTS[PROMPTS.length - 1].day : 1;
     loadPrompt(defaultDay);
   } catch (error) {
     console.error('Failed to initialize application:', error);

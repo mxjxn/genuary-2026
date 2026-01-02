@@ -67,14 +67,14 @@ function setupStartButton() {
   
   btn.addEventListener('click', async () => {
     try {
-      // 1. Ensure Supersonic is booted
-      if (audioInstance && typeof audioInstance.ensureStarted === 'function') {
-        await audioInstance.ensureStarted();
-      }
-      
-      // 2. Start the sequencer (resumes AudioContext)
+      // 1. Start the sequencer (resumes AudioContext) immediately to capture user gesture
       if (bridge && bridge.sequencer) {
         bridge.sequencer.start();
+      }
+
+      // 2. Ensure Supersonic is booted (might take time loading WASM/assets)
+      if (audioInstance && typeof audioInstance.ensureStarted === 'function') {
+        await audioInstance.ensureStarted();
       }
       
       // 3. Hide overlay

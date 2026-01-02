@@ -25,6 +25,14 @@ export class BasePrompt {
   }
 
   /**
+   * Called after audio engine is fully booted (user clicked start)
+   * Override to set up synths, groups, etc.
+   */
+  setupAudio() {
+    // Override in subclasses
+  }
+
+  /**
    * Called every frame (typically 60fps)
    * Override to draw/animate your prompt
    */

@@ -77,7 +77,12 @@ function setupStartButton() {
         await audioInstance.ensureStarted();
       }
       
-      // 3. Hide overlay
+      // 3. Initialize Prompt Audio (Groups, FX, etc.)
+      if (currentPrompt && typeof currentPrompt.setupAudio === 'function') {
+        currentPrompt.setupAudio();
+      }
+
+      // 4. Hide overlay
       overlay.classList.add('hidden');
     } catch (err) {
       console.error('Error starting audio:', err);

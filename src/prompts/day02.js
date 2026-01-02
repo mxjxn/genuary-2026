@@ -62,34 +62,9 @@ export class Day02 extends BasePrompt {
     // Setup Sequencer
     const sequencer = this.bridge.sequencer;
     sequencer.setBPM(60); 
-    
-    // Initialize Audio Groups & FX
-    if (this.audio) {
-      this.audio.ensureStarted().then(() => {
-        // Group Order: Synths (2000) -> FX (2001) -> Drums (2002)
-        // This ensures Reverb (in FX) processes Synths, but Drums (played after) remain dry.
-        
-        // 1. Create Synth Group (2000) at Head of Root (0)
-        this.audio.send('/g_new', 2000, 0, 0);
-        
-        // 2. Create FX Group (2001) After Synth Group (2000)
-        this.audio.send('/g_new', 2001, 3, 2000);
-        
-        // 3. Create Drum Group (2002) After FX Group (2001)
-        this.audio.send('/g_new', 2002, 3, 2001);
-
-        // 4. Create Reverb in FX Group
-        this.audio.send('/s_new', 'sonic-pi-fx_reverb', 999, 0, 2001, 
-          'room', 17.8, 
-          'mix', 0.8, 
-          'damp', 0.9, 
-          'amp', 0.7 
-        );
-      });
-    }
 
     // Schedule Event Every 8 Beats (8 Seconds)
-    // Alternates between Main Cycle (Movement) and Bridge Chord (Higher Inversion)
+
     sequencer.schedule('generative-cycle', ({ beat }) => {
       
       if (!this.isBridge) {
@@ -147,6 +122,30 @@ export class Day02 extends BasePrompt {
     }, '16n');
     
     sequencer.start();
+  }
+
+  setupAudio() {
+    if (this.audio) {
+        // Group Order: Synths (2000) -> FX (2001) -> Drums (2002)
+        // This ensures Reverb (in FX) processes Synths, but Drums (played after) remain dry.
+        
+        // 1. Create Synth Group (2000) at Head of Root (0)
+        this.audio.send('/g_new', 2000, 0, 0);
+        
+        // 2. Create FX Group (2001) After Synth Group (2000)
+        this.audio.send('/g_new', 2001, 3, 2000);
+        
+        // 3. Create Drum Group (2002) After FX Group (2001)
+        this.audio.send('/g_new', 2002, 3, 2001);
+
+        // 4. Create Reverb in FX Group
+        this.audio.send('/s_new', 'sonic-pi-fx_reverb', 999, 0, 2001, 
+          'room', 17.8, 
+          'mix', 0.5, 
+          'damp', 0.8, 
+          'amp', 0.5
+        );
+    }
   }
 
   triggerMovement(amt) {

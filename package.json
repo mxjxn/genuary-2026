@@ -1,0 +1,19 @@
+{
+  "name": "genuary-2026",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "p5": "^1.7.0",
+    "supersonic-scsynth": "^0.25.5",
+    "supersonic-scsynth-samples": "^0.25.5",
+    "supersonic-scsynth-synthdefs": "^0.25.5"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

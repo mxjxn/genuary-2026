@@ -42,7 +42,8 @@ export async function initSupersonic() {
             'sonic-pi-prophet',
             'sonic-pi-sc808_bassdrum',
             'sonic-pi-sc808_rimshot',
-            'sonic-pi-sc808_tomlo'
+            'sonic-pi-sc808_tomlo',
+            'sonic-pi-fx_reverb'
           ]);
           
           console.log('Supersonic booted!');
@@ -54,13 +55,16 @@ export async function initSupersonic() {
     };
 
     // Wrapper for triggering synths (handles lazy start)
-    supersonicInstance.synth = async (name, params = {}) => {
+    supersonicInstance.synth = async (name, params = {}, options = {}) => {
       // Auto-start on first synth call if needed
       // Note: This might block the first note slightly
       if (!isInitialized) {
         await supersonicInstance.ensureStarted();
       }
       
+      const target = options.target !== undefined ? options.target : 0;
+      const action = options.action !== undefined ? options.action : 0; // 0 = addToHead
+
       // Convert params object to OSC args
       // e.g. { freq: 440, amp: 0.5 } -> ['freq', 440, 'amp', 0.5]
       const oscArgs = [];
@@ -69,8 +73,8 @@ export async function initSupersonic() {
       }
       
       // Send /s_new command
-      // /s_new, synthName, nodeID (-1 for auto), targetID (0 for head), addAction (0 for head), [args...]
-      supersonicInstance.send('/s_new', name, -1, 0, 0, ...oscArgs);
+      // /s_new, synthName, nodeID (-1 for auto), targetID, addAction, [args...]
+      supersonicInstance.send('/s_new', name, -1, action, target, ...oscArgs);
     };
 
     return supersonicInstance;

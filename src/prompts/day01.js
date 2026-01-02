@@ -225,4 +225,3 @@ export class Day01 extends BasePrompt {
     this.bridge.sequencer.clear();
   }
 }
-

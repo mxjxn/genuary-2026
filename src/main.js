@@ -196,6 +196,22 @@ function loadPrompt(day) {
       if (typeof currentPrompt.setup === 'function') {
         currentPrompt.setup();
       }
+
+      // If audio is already running (we've started before), auto-start the new prompt
+      if (audioInstance && audioInstance.context && audioInstance.context.state === 'running') {
+        const overlay = document.getElementById('start-overlay');
+        if (overlay) overlay.classList.add('hidden');
+        
+        // Allow a brief moment for the prompt to complete setup
+        setTimeout(() => {
+          if (currentPrompt && typeof currentPrompt.setupAudio === 'function') {
+            currentPrompt.setupAudio();
+          }
+          if (bridge && bridge.sequencer) {
+            bridge.sequencer.start();
+          }
+        }, 100);
+      }
     };
 
     p.draw = () => {

@@ -44,6 +44,24 @@ async function init() {
     // Start with most recent available prompt
     const defaultDay = PROMPTS.length > 0 ? PROMPTS[PROMPTS.length - 1].day : 1;
     loadPrompt(defaultDay);
+
+    // Auto-start if AudioContext is already running (e.g. Hot Reload)
+    if (audioInstance && audioInstance.context && audioInstance.context.state === 'running') {
+       console.log('AudioContext running, auto-starting...');
+       const overlay = document.getElementById('start-overlay');
+       if (overlay) overlay.classList.add('hidden');
+       
+       // Allow a brief moment for the prompt to mount
+       setTimeout(() => {
+         if (currentPrompt && typeof currentPrompt.setupAudio === 'function') {
+           currentPrompt.setupAudio();
+         }
+         if (bridge && bridge.sequencer) {
+           bridge.sequencer.start();
+         }
+       }, 500);
+    }
+
   } catch (error) {
     console.error('Failed to initialize application:', error);
     // Show error message to user
@@ -67,9 +85,9 @@ function setupStartButton() {
   
   btn.addEventListener('click', async () => {
     try {
-      // 1. Start the sequencer (resumes AudioContext) immediately to capture user gesture
+      // 1. Resume AudioContext immediately to capture user gesture
       if (bridge && bridge.sequencer) {
-        bridge.sequencer.start();
+        bridge.sequencer.resume();
       }
 
       // 2. Ensure Supersonic is booted (might take time loading WASM/assets)
@@ -81,8 +99,15 @@ function setupStartButton() {
       if (currentPrompt && typeof currentPrompt.setupAudio === 'function') {
         currentPrompt.setupAudio();
       }
+      
+      // 4. Start the Sequencer (Clock) with a slight delay to ensure groups are ready
+      setTimeout(() => {
+        if (bridge && bridge.sequencer) {
+          bridge.sequencer.start();
+        }
+      }, 100);
 
-      // 4. Hide overlay
+      // 5. Hide overlay
       overlay.classList.add('hidden');
     } catch (err) {
       console.error('Error starting audio:', err);

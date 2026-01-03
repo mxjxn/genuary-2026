@@ -30,12 +30,19 @@ export class Sequencer {
   }
 
   /**
-   * Start the sequencer
+   * Resume the AudioContext (must be called from user gesture)
    */
-  start() {
+  resume() {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+  }
+
+  /**
+   * Start the sequencer
+   */
+  start() {
+    this.resume();
 
     if (this.isPlaying) return;
     

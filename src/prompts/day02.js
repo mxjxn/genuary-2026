@@ -15,39 +15,58 @@ export class Day02 extends BasePrompt {
     
     // History for the ribbon trail
     // At 60fps, we want a long enough buffer to capture the motion
-    this.maxHistory = 300; 
+    this.maxHistory = 50; 
     
     this.currentRoot = 60; // Start at C4
     this.currentQuality = 'minor'; // 'minor' or 'major'
     this.isBridge = false; // Toggle for A/B structure
+    this.spinnerIndex = 0; // Index of the point that performs the extra spin
+    this.inversionZone = null; // Rectangle that inverts colors
+    
+    // Polyphony Management
+    this.activeNotes = []; 
+    this.nextNodeId = 3000;
   }
 
   setup() {
+    this.p5.colorMode(this.p5.HSB, 360, 100, 100, 1);
     this.p5.background(5); 
     
-    // Initialize Polar Points
-    this.polarPoints = [
-      { 
-        r: 250, 
-        theta: 0, 
-        startTheta: 0,
-        targetTheta: 0,
-        isMoving: false,
-        moveStartTime: 0,
-        moveDuration: 6.0, 
-        history: [] 
-      }, 
-      { 
-        r: 420, 
-        theta: Math.PI, 
-        startTheta: Math.PI,
-        targetTheta: Math.PI,
-        isMoving: false,
-        moveStartTime: 0,
-        moveDuration: 7.0, 
-        history: [] 
+    const maxDimension = Math.max(this.p5.width, this.p5.height) / 2;
+
+    // Initialize Rings with Dots
+    // Radii evenly spaced from 15% to 95% of the widest dimension
+    this.rings = [];
+    const numRings = 30;
+    
+    for (let i = 0; i < numRings; i++) {
+      const rMult = this.p5.lerp(0.15, 0.95, i / (numRings - 1));
+      const r = maxDimension * rMult;
+      
+      const numDots = 1; // 1 dot per ring for performance
+      const dots = [];
+      
+      for (let j = 0; j < numDots; j++) {
+        // Random starting point on the circle
+        const startTheta = this.p5.random(this.p5.TWO_PI);
+        
+        dots.push({
+          theta: startTheta,
+          startTheta: startTheta,
+          targetTheta: startTheta,
+          pace: this.p5.random(0.5, 2.0), // Random pace for each dot
+          isMoving: false,
+          moveStartTime: 0,
+          moveDuration: 8.0,
+          history: [],
+          currentPos: { x: 0, y: 0 }, // Init holder
+          currentScale: 1, // Initialize scale for lerping
+          lastTouched: -100 // Timestamp of last lightning strike
+        });
       }
-    ];
+
+      this.rings.push({ r, dots });
+    }
 
     // Initialize Spark
     this.spark = {
@@ -58,6 +77,7 @@ export class Day02 extends BasePrompt {
 
     // Initialize Corners
     this.generateCorners();
+    this.pickInversionZone();
 
     // Setup Sequencer
     const sequencer = this.bridge.sequencer;
@@ -95,6 +115,8 @@ export class Day02 extends BasePrompt {
         this.triggerMovement(Math.PI); // Arc 180 degrees for the bridge
       }
       
+      this.pickInversionZone();
+
       // Toggle for next time
       this.isBridge = !this.isBridge;
       
@@ -121,7 +143,7 @@ export class Day02 extends BasePrompt {
       }
     }, '16n');
     
-    sequencer.start();
+    // sequencer.start() is handled by main.js after audio init
   }
 
   setupAudio() {
@@ -140,53 +162,87 @@ export class Day02 extends BasePrompt {
 
         // 4. Create Reverb in FX Group
         this.audio.send('/s_new', 'sonic-pi-fx_reverb', 999, 0, 2001, 
-          'room', 17.8, 
+          'room', 15.8, 
           'mix', 0.5, 
-          'damp', 0.8, 
-          'amp', 0.5
+          'damp', 0.5, 
+          'amp', 1.0
         );
     }
   }
 
   triggerMovement(amt) {
     const now = this.p5.millis() / 1000;
-    this.polarPoints.forEach(p => {
-      p.isMoving = true;
-      p.moveStartTime = now;
-      p.startTheta = p.targetTheta; // Resume from current spot
+    
+    // Determine the base movement amount
+    const baseAmt = amt !== undefined ? amt : (2.0 + this.p5.random(-0.2, 0.2));
+
+    this.rings.forEach((ring, i) => {
+      const isSpinnerRing = (i === this.spinnerIndex);
       
-      // Use provided amount (e.g. 180 deg) or random small arc
-      const moveAmt = amt !== undefined ? amt : (2.0 + this.p5.random(-0.2, 0.2));
-      p.targetTheta = p.startTheta + moveAmt;
-      p.moveDuration = 8.0; // Ensure it takes 8 seconds
+      ring.dots.forEach(p => {
+        p.isMoving = true;
+        p.moveStartTime = now;
+        p.startTheta = p.targetTheta; // Resume from current spot
+        
+        // Calculate variance (0.7 to 1.3)
+        const variance = this.p5.random(0.7, 1.3);
+        const moveAmt = baseAmt * variance * p.pace;
+
+        if (isSpinnerRing) {
+          // Spinner Ring: Goes forward + Extra 360 spin
+          p.targetTheta = p.startTheta + moveAmt + this.p5.TWO_PI;
+        } else {
+          // Others: Go in reverse (counter-motion) with variance
+          p.targetTheta = p.startTheta - moveAmt;
+        }
+        
+        p.moveDuration = 8.0; // Ensure it takes 8 seconds
+      });
     });
+
+    // Alternate the spinner ring for next time
+    this.spinnerIndex = (this.spinnerIndex + 1) % this.rings.length;
   }
 
   playChord(root, quality, amp) {
-    if (this.audio && this.audio.synth) {
+    if (this.audio) {
       const thirdInterval = quality === 'minor' ? 3 : 4;
       // Main Chord: Root, Third, Fifth, Seventh (Fundamental position)
       const notes = [root, root + thirdInterval, root + 7, root + 10]; 
-      
+      const now = this.p5.millis() / 1000;
+      const duration = 8.0;
+
       notes.forEach((n, i) => {
-         this.audio.synth('sonic-pi-prophet', { 
-          note: n + (this.p5.random([-12, 0, 12])), 
-          amp: amp* 0.5, 
-          attack: 4.0, 
-          decay: 0.0,
-          sustain: 0.0, 
-          release: 4.0, // Total 8s
-          cutoff: 60 + (i * 12)
-        }, { target: 2000 }); // Target Synth Group
+         const id = this.nextNodeId++;
+         // Phase shift each note so they pan around each other
+         // Spread phases over PI (half circle) or TWO_PI
+         const phase = (i / notes.length) * this.p5.TWO_PI; 
+         
+         this.activeNotes.push({
+           id: id,
+           startTime: now,
+           duration: duration,
+           phase: phase
+         });
+
+         this.audio.send('/s_new', 'sonic-pi-prophet', id, 0, 2000, 
+          'note', n + (this.p5.random([-12, 0, 12])), 
+          'amp', amp * 0.5, 
+          'attack', 1.0, 
+          'decay', 0.0, 
+          'sustain', 0.0, 
+          'release', 4.0,
+          'cutoff', 60 + (i * 12),
+          'pan', Math.sin(now + phase) // Initial pan
+         );
       });
     }
   }
 
   playBridgeChord(root, quality, amp) {
-    if (this.audio && this.audio.synth) {
+    if (this.audio) {
       const thirdInterval = quality === 'minor' ? 3 : 4;
-      // Bridge Chord: 2nd Inversion + 9th/11th extensions for "floating" feel
-      // [5th, 7th, Root(+8ve), 3rd(+8ve)]
+      // Bridge Chord: 2nd Inversion + 9th/11th extensions
       const notes = [
         root + 7,               // 5th
         root + 10,              // 7th
@@ -194,16 +250,31 @@ export class Day02 extends BasePrompt {
         root + 12 + thirdInterval // 3rd (up octave)
       ];
 
+      const now = this.p5.millis() / 1000;
+      const duration = 8.0;
+
       notes.forEach((n, i) => {
-         this.audio.synth('sonic-pi-prophet', { 
-          note: n, 
-          amp: amp * 0.6, // Slightly quieter
-          attack: 2.0,    // Faster attack
-          decay: 0.0,
-          sustain: 0.0, 
-          release: 6.0,   // Long tail
-          cutoff: 80 + (i * 10) // Brighter
-        }, { target: 2000 }); // Target Synth Group
+         const id = this.nextNodeId++;
+         // Different phase offset for bridge to feel distinct
+         const phase = (i / notes.length) * this.p5.TWO_PI + (Math.PI / 4);
+
+         this.activeNotes.push({
+           id: id,
+           startTime: now,
+           duration: duration,
+           phase: phase
+         });
+
+         this.audio.send('/s_new', 'sonic-pi-prophet', id, 0, 2000, 
+          'note', n, 
+          'amp', amp * 0.6, 
+          'attack', 1.0, 
+          'decay', 0.0, 
+          'sustain', 0.0, 
+          'release', 6.0,
+          'cutoff', 80 + (i * 10),
+          'pan', Math.sin(now + phase)
+         );
       });
     }
   }
@@ -215,86 +286,109 @@ export class Day02 extends BasePrompt {
 
     const t = this.p5.millis() / 1000;
 
+    // --- Audio Update Loop (Panning) ---
+    // 1. Prune expired notes (give 1s buffer after release)
+    this.activeNotes = this.activeNotes.filter(n => t < n.startTime + n.duration + 1.0);
+    
+    // 2. Update Pan for active notes
+    // Pan speed: 0.5 Hz (One full cycle every 2 seconds)
+    const panSpeed = 0.5; 
+    this.activeNotes.forEach(n => {
+      const pan = Math.sin((t * panSpeed * Math.PI * 2) + n.phase);
+      if (this.audio) {
+        this.audio.send('/n_set', n.id, 'pan', pan);
+      }
+    });
+
     // 1. Draw Corners (Background Grid)
     this.drawCorners(t);
 
     const center = this.getCenter();
     
-    this.polarPoints.forEach((p, i) => {
-      // --- Update Position ---
-      if (p.isMoving) {
-        const elapsed = t - p.moveStartTime;
-        let progress = elapsed / p.moveDuration;
-        
-        if (progress >= 1) {
-          progress = 1;
-          p.isMoving = false;
-          p.theta = p.targetTheta;
-        } else {
-          const eased = this.easeInOutCubic(progress);
-          p.theta = this.p5.lerp(p.startTheta, p.targetTheta, eased);
+    this.rings.forEach((ring, ringIdx) => {
+      ring.dots.forEach((p, dotIdx) => {
+        // --- Update Position ---
+        if (p.isMoving) {
+          const elapsed = t - p.moveStartTime;
+          let progress = elapsed / p.moveDuration;
+          
+          if (progress >= 1) {
+            progress = 1;
+            p.isMoving = false;
+            p.theta = p.targetTheta;
+          } else {
+            const eased = this.easeInOutCubic(progress);
+            p.theta = this.p5.lerp(p.startTheta, p.targetTheta, eased);
+          }
         }
-      }
-      
-      const x = center.x + Math.cos(p.theta) * p.r;
-      const y = center.y + Math.sin(p.theta) * p.r;
-      p.currentPos = { x, y };
-
-      // --- Calculate Current Color ---
-      // Map theta (radians) to Hue (0-360)
-      // We use (p.theta % TWO_PI) to keep it in range
-      const hue = (this.p5.degrees(p.theta) % 360 + 360) % 360;
-      const currentColor = [hue, 80, 90];
-      p.color = currentColor; // Keep for lightning/etc
-
-      // --- Update History ---
-      // Push current position and color to history
-      p.history.push({ x, y, color: currentColor });
-      
-      // Manage trail length
-      // If NOT moving, dissolve the tail rapidly
-      if (!p.isMoving) {
-         if (p.history.length > 0) p.history.shift();
-         if (p.history.length > 0) p.history.shift(); // decay faster when stopped
-      } 
-      // Always limit max length
-      if (p.history.length > this.maxHistory) {
-        p.history.shift();
-      }
-
-      // --- Draw Ribbon Trail ---
-      this.p5.noFill();
-      this.p5.strokeWeight(2);
-      
-      // We draw a continuous shape for the trail
-      this.p5.beginShape();
-      for (let j = 0; j < p.history.length; j++) {
-        const pos = p.history[j];
-        this.p5.vertex(pos.x, pos.y);
-      }
-      this.p5.endShape();
-      
-      this.p5.noStroke();
-      for (let j = 0; j < p.history.length; j++) {
-        const pos = p.history[j];
-        const ageNorm = j / p.history.length;
         
-        const size = ageNorm * 60; // Taper from 0 to 60
-        const alpha = Math.pow(ageNorm, 3) * 0.6;
-        
-        const c = pos.color;
-        this.p5.fill(c[0], c[1], c[2], alpha);
-        this.p5.circle(pos.x, pos.y, size);
-      }
+        const x = center.x + Math.cos(p.theta) * ring.r;
+        const y = center.y + Math.sin(p.theta) * ring.r;
 
-      // Draw Head
-      this.p5.fill(currentColor[0], currentColor[1], currentColor[2], 1.0);
-      this.p5.circle(x, y, 20); 
+        const speed = this.p5.dist(x, y, p.currentPos.x, p.currentPos.y);
+        const targetScale = this.p5.map(speed, 0, 8, 10, 1, true);
+        
+        // Lerp the scale for smoothness (adjust 0.1 for more/less smoothing)
+        p.currentScale = this.p5.lerp(p.currentScale, targetScale, 0.1);
+        p.scaleFactor = p.currentScale;
+        
+        p.currentPos = { x, y };
+
+        // --- Calculate Current Color ---
+        const hue = (this.p5.degrees(p.theta) % 360 + 360 + (ringIdx / this.rings.length * 360)) % 360;
+        let currentColor = [hue, 70, 40]; // Softer saturation and brightness
+
+        // Check Inversion Zone
+        if (this.inversionZone) {
+            if (x >= this.inversionZone.x && x <= this.inversionZone.x + this.inversionZone.w &&
+                y >= this.inversionZone.y && y <= this.inversionZone.y + this.inversionZone.h) {
+                // Invert Color: Complementary Hue, Higher Brightness
+                currentColor = [(hue + 180) % 360, 70, 90]; 
+            }
+        }
+
+        p.color = currentColor; 
+
+        // --- Update History ---
+        p.history.push({ x, y, color: currentColor });
+        
+        if (!p.isMoving) {
+           if (p.history.length > 0) p.history.shift();
+           if (p.history.length > 0) p.history.shift(); 
+        } 
+        if (p.history.length > this.maxHistory) {
+          p.history.shift();
+        }
+
+        // --- Draw Ribbon Trail ---
+        this.p5.noFill();
+        this.p5.strokeWeight(2);
+        
+        this.p5.beginShape();
+        for (let j = 0; j < p.history.length; j++) {
+          const pos = p.history[j];
+          this.p5.vertex(pos.x, pos.y);
+        }
+        this.p5.endShape();
+        
+        this.p5.noStroke();
+        for (let j = 0; j < p.history.length; j++) {
+          const pos = p.history[j];
+          const ageNorm = j / p.history.length;
+          const size = ageNorm * 60 * p.scaleFactor; 
+          // Drastically reduce alpha for soft ADD blend
+          const alpha = Math.pow(ageNorm, 3) * 0.05;
+          const c = pos.color;
+          this.p5.fill(c[0], c[1], c[2], alpha);
+          this.p5.circle(pos.x, pos.y, size);
+        }
+
+        // Draw Head
+        this.p5.fill(currentColor[0], currentColor[1], currentColor[2], 0.1);
+        this.p5.circle(x, y, 20 * p.scaleFactor); 
+      });
     });
 
-    // 2. Update and Draw Spark
-    this.updateSpark();
-    this.drawSpark();
     
     this.p5.blendMode(this.p5.BLEND);
   }
@@ -316,6 +410,7 @@ export class Day02 extends BasePrompt {
   }
 
   drawSpark() {
+    const t = this.p5.millis() / 1000;
     this.p5.fill(this.spark.color[0], this.spark.color[1], this.spark.color[2]);
     this.p5.noStroke();
     this.p5.circle(this.spark.pos.x, this.spark.pos.y, 10);
@@ -326,22 +421,26 @@ export class Day02 extends BasePrompt {
     this.p5.noFill();
     this.p5.strokeWeight(3);
 
-    this.polarPoints.forEach(p => {
-      const d = this.p5.dist(this.spark.pos.x, this.spark.pos.y, p.currentPos.x, p.currentPos.y);
-      if (d < 300) {
-        this.drawLightning(this.spark.pos.x, this.spark.pos.y, p.currentPos.x, p.currentPos.y, d);
-      }
-      if (p.history.length > 0) {
-        for(let i=0; i<8; i++) {
-           const idx = Math.floor(this.p5.random(p.history.length));
-           const histPos = p.history[idx];
-           const dHist = this.p5.dist(this.spark.pos.x, this.spark.pos.y, histPos.x, histPos.y);
-           if (dHist < 150 && this.p5.random() < 0.15) {
-             this.drawLightning(this.spark.pos.x, this.spark.pos.y, histPos.x, histPos.y, dHist);
-             break; 
-           }
+    this.rings.forEach(ring => {
+      ring.dots.forEach(p => {
+        const d = this.p5.dist(this.spark.pos.x, this.spark.pos.y, p.currentPos.x, p.currentPos.y);
+        if (d < 300 && Math.random() < 0.2 && (t - p.lastTouched) > 0.2) {
+          this.drawLightning(this.spark.pos.x, this.spark.pos.y, p.currentPos.x, p.currentPos.y, d);
+          p.lastTouched = t; // Mark as touched
         }
-      }
+        if (p.history.length > 0) {
+          for(let i=0; i<3; i++) { // Reduce to 3 attempts to save perf with many dots
+             const idx = Math.floor(this.p5.random(p.history.length));
+             const histPos = p.history[idx];
+             const dHist = this.p5.dist(this.spark.pos.x, this.spark.pos.y, histPos.x, histPos.y);
+             if (dHist < 100 && this.p5.random() < 0.1) { // Lower prob
+               this.drawLightning(this.spark.pos.x, this.spark.pos.y, histPos.x, histPos.y, dHist);
+               p.lastTouched = t; // Mark as touched
+               break; 
+             }
+          }
+        }
+      });
     });
   }
 
@@ -360,6 +459,20 @@ export class Day02 extends BasePrompt {
     }
     this.p5.vertex(x2, y2);
     this.p5.endShape();
+  }
+
+  pickInversionZone() {
+    const minSize = Math.min(this.p5.width, this.p5.height) / 4;
+    const candidates = this.corners.filter(c => c.w > minSize && c.h > minSize);
+    if (candidates.length > 0) {
+      this.inversionZone = this.p5.random(candidates);
+    } else {
+       // Fallback to center if no big corners
+       this.inversionZone = {
+           x: this.p5.width/4, y: this.p5.height/4,
+           w: this.p5.width/2, h: this.p5.height/2
+       };
+    }
   }
 
   generateCorners() {
@@ -414,6 +527,14 @@ export class Day02 extends BasePrompt {
 
   windowResized() {
     this.generateCorners();
+    const maxDimension = Math.max(this.p5.width, this.p5.height) / 2;
+    if (this.rings) {
+      const numRings = this.rings.length;
+      this.rings.forEach((ring, i) => {
+        const rMult = this.p5.lerp(0.15, 0.95, i / (numRings - 1));
+        ring.r = maxDimension * rMult;
+      });
+    }
   }
   
   cleanup() {

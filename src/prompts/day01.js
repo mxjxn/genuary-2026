@@ -58,7 +58,8 @@ export class Day01 extends BasePrompt {
     
     const sequencer = this.bridge.sequencer;
     sequencer.setBPM(60); 
-    sequencer.start();
+    
+    // sequencer.start() is handled by main.js after audio init
 
     // Schedule each note
     this.notes.forEach((noteObj, index) => {

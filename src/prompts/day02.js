@@ -21,7 +21,10 @@ export class Day02 extends BasePrompt {
     this.currentQuality = 'minor'; // 'minor' or 'major'
     this.isBridge = false; // Toggle for A/B structure
     this.spinnerIndex = 0; // Index of the point that performs the extra spin
-    this.inversionZone = null; // Rectangle that inverts colors
+    this.inversionZones = []; // Rectangles that invert colors
+    
+    // Tint/Overlay Zones (Low CPU)
+    this.tintZones = []; 
     
     // Polyphony Management
     this.activeNotes = []; 
@@ -77,7 +80,7 @@ export class Day02 extends BasePrompt {
 
     // Initialize Corners
     this.generateCorners();
-    this.pickInversionZone();
+    this.pickInversionZones();
 
     // Setup Sequencer
     const sequencer = this.bridge.sequencer;
@@ -115,7 +118,13 @@ export class Day02 extends BasePrompt {
         this.triggerMovement(Math.PI); // Arc 180 degrees for the bridge
       }
       
-      this.pickInversionZone();
+      // Regenerate Grid with new random center
+      // Keep center within 20%-80% of screen to ensure usable quadrants
+      const cx = this.p5.width * this.p5.random(0.2, 0.8);
+      const cy = this.p5.height * this.p5.random(0.2, 0.8);
+      this.generateCorners(cx, cy);
+      
+      this.pickInversionZones();
 
       // Toggle for next time
       this.isBridge = !this.isBridge;
@@ -326,27 +335,20 @@ export class Day02 extends BasePrompt {
         const y = center.y + Math.sin(p.theta) * ring.r;
 
         const speed = this.p5.dist(x, y, p.currentPos.x, p.currentPos.y);
-        const targetScale = this.p5.map(speed, 0, 8, 10, 1, true);
+        const targetScale = this.p5.map(speed, 0, 2, 15, 0.2, true);
         
-        // Lerp the scale for smoothness (adjust 0.1 for more/less smoothing)
+        // Lerp the scale for smoothness
         p.currentScale = this.p5.lerp(p.currentScale, targetScale, 0.1);
         p.scaleFactor = p.currentScale;
+        
+        // Map speed to brightness to prevent over-brightness when slow
+        const brightness = this.p5.map(speed, 0, 5, 20, 40, true);
         
         p.currentPos = { x, y };
 
         // --- Calculate Current Color ---
         const hue = (this.p5.degrees(p.theta) % 360 + 360 + (ringIdx / this.rings.length * 360)) % 360;
-        let currentColor = [hue, 70, 40]; // Softer saturation and brightness
-
-        // Check Inversion Zone
-        if (this.inversionZone) {
-            if (x >= this.inversionZone.x && x <= this.inversionZone.x + this.inversionZone.w &&
-                y >= this.inversionZone.y && y <= this.inversionZone.y + this.inversionZone.h) {
-                // Invert Color: Complementary Hue, Higher Brightness
-                currentColor = [(hue + 180) % 360, 70, 90]; 
-            }
-        }
-
+        const currentColor = [hue, 70, brightness]; // Dim brightness at slower speeds
         p.color = currentColor; 
 
         // --- Update History ---
@@ -391,6 +393,49 @@ export class Day02 extends BasePrompt {
 
     
     this.p5.blendMode(this.p5.BLEND);
+
+    // Draw Inversion Zones using Difference Blend Mode
+    if (this.inversionZones.length > 0) {
+      this.p5.blendMode(this.p5.DIFFERENCE);
+      this.p5.noStroke();
+      // White in HSB (Hue doesn't matter, Sat 0, Bright 100)
+      this.p5.fill(0, 0, 100); 
+      
+      this.inversionZones.forEach(zone => {
+        this.p5.rect(zone.x, zone.y, zone.w, zone.h);
+      });
+      
+      this.p5.blendMode(this.p5.BLEND);
+    }
+    
+    // --- Post-Processing Effects ---
+    // this.applySlitScan();
+    
+    // Draw Tint Zones (OVERLAY Mode) - Very Cheap
+    if (this.tintZones.length > 0) {
+      this.p5.blendMode(this.p5.OVERLAY);
+      this.p5.noStroke();
+      
+      this.tintZones.forEach((zone) => {
+         this.p5.fill(zone.hue, 100, 100);
+         this.p5.rect(zone.x, zone.y, zone.w, zone.h);
+      });
+      
+      this.p5.blendMode(this.p5.BLEND);
+    }
+  }
+
+  applySlitScan() {
+    // Randomly shift horizontal strips
+        for (let i = 0; i < 20; i++) {
+          const y = this.p5.random(this.p5.height);
+          const h = this.p5.random(2, 20);
+          const xOffset = this.p5.random(-5, 5);
+          
+          // Copy strip from (0, y) to (xOffset, y)
+          this.p5.copy(0, y, this.p5.width, h, xOffset, y, this.p5.width, h);
+        }
+
   }
 
   // ... (Rest of helper methods: corners, spark, ease) ...
@@ -461,31 +506,95 @@ export class Day02 extends BasePrompt {
     this.p5.endShape();
   }
 
-  pickInversionZone() {
-    const minSize = Math.min(this.p5.width, this.p5.height) / 4;
-    const candidates = this.corners.filter(c => c.w > minSize && c.h > minSize);
-    if (candidates.length > 0) {
-      this.inversionZone = this.p5.random(candidates);
-    } else {
-       // Fallback to center if no big corners
-       this.inversionZone = {
-           x: this.p5.width/4, y: this.p5.height/4,
-           w: this.p5.width/2, h: this.p5.height/2
-       };
+  pickInversionZones() {
+    this.inversionZones = [];
+    
+    // Filter by size
+    const minDim = Math.min(this.p5.width, this.p5.height);
+    
+    // "Big" candidates: approx 1/8 to 1/3 of screen dimension
+    const bigCandidates = this.corners.filter(c => 
+        c.w > minDim * 0.15 && c.w < minDim * 0.4 &&
+        c.h > minDim * 0.15 && c.h < minDim * 0.4
+    );
+    
+    // "Small" candidates: less than 1/8 of screen dimension
+    const smallCandidates = this.corners.filter(c => 
+        c.w < minDim * 0.12 && c.h < minDim * 0.12
+    );
+
+    // "Thin" candidates: High aspect ratio (short/wide or tall/thin)
+    const thinCandidates = this.corners.filter(c => {
+        const shortSide = Math.min(c.w, c.h) + 0.1; // protect div/0
+        const longSide = Math.max(c.w, c.h);
+        return (longSide / shortSide) > 3.5; 
+    });
+
+    // Pick 1 Big
+    if (bigCandidates.length > 0) {
+        this.inversionZones.push(this.p5.random(bigCandidates));
+    } else if (this.corners.length > 0) {
+        // Fallback: just pick any random one if no specific size matches
+        this.inversionZones.push(this.p5.random(this.corners));
+    }
+    
+    // Pick 2 Small
+    if (smallCandidates.length > 0) {
+        this.inversionZones.push(this.p5.random(smallCandidates));
+        this.inversionZones.push(this.p5.random(smallCandidates));
+    } else if (this.corners.length > 0) {
+        // Fallback
+        this.inversionZones.push(this.p5.random(this.corners));
+        this.inversionZones.push(this.p5.random(this.corners));
+    }
+
+    // Pick 4-8 Thin
+    if (thinCandidates.length > 0) {
+        const count = Math.floor(this.p5.random(4, 9)); // 4 to 8
+        const shuffled = this.p5.shuffle(thinCandidates);
+        const toPick = Math.min(count, shuffled.length);
+        for(let i=0; i<toPick; i++) {
+            this.inversionZones.push(shuffled[i]);
+        }
+    }
+    
+    // Pick Tint Zones (Overlay blend mode)
+    this.tintZones = [];
+    if (this.corners.length > 0) {
+        // Pick 3-8 random areas to tint
+        const count = Math.floor(this.p5.random(8, 16));
+        for(let i=0; i<count; i++) {
+             const rect = this.p5.random(this.corners);
+             
+             // Determine Color
+             // 40% chance of Primary Hue (Cyan-ish), otherwise random
+             const isPrimary = this.p5.random() < 0.4;
+             let h = isPrimary ? 180 : this.p5.random(360);
+             
+             // Add Variance ("slightly different")
+             h = (h + this.p5.random(-20, 20) + 360) % 360;
+             
+             this.tintZones.push({ ...rect, hue: h });
+        }
     }
   }
 
-  generateCorners() {
+  generateCorners(cx, cy) {
     this.corners = [];
-    const w = this.p5.width / 2;
-    const h = this.p5.height / 2;
     
-    // Define 4 quadrants covering the entire screen
+    // Default to center if not provided
+    if (cx === undefined) cx = this.p5.width / 2;
+    if (cy === undefined) cy = this.p5.height / 2;
+    
+    const w = this.p5.width;
+    const h = this.p5.height;
+    
+    // Define 4 quadrants covering the entire screen based on split point
     const regions = [
-      { x: 0, y: 0, w: w, h: h }, // Top-Left
-      { x: w, y: 0, w: w, h: h }, // Top-Right
-      { x: 0, y: h, w: w, h: h }, // Bottom-Left
-      { x: w, y: h, w: w, h: h }  // Bottom-Right
+      { x: 0, y: 0, w: cx, h: cy }, // Top-Left
+      { x: cx, y: 0, w: w - cx, h: cy }, // Top-Right
+      { x: 0, y: cy, w: cx, h: h - cy }, // Bottom-Left
+      { x: cx, y: cy, w: w - cx, h: h - cy }  // Bottom-Right
     ];
     
     regions.forEach(region => {
@@ -498,7 +607,16 @@ export class Day02 extends BasePrompt {
        this.corners.push({ x, y, w, h, alpha: this.p5.random(0.1, 0.4) });
        return;
     }
-    const horizontal = this.p5.random() > 0.5;
+    
+    let horizontal;
+    if (w / h >= 2) {
+      horizontal = false;
+    } else if (h / w >= 2) {
+      horizontal = true;
+    } else {
+      horizontal = this.p5.random() > 0.5;
+    }
+    
     const split = this.p5.random(0.3, 0.7);
     if (horizontal) {
       this.divideRect(x, y, w, h * split, depth - 1);
@@ -510,7 +628,7 @@ export class Day02 extends BasePrompt {
   }
 
   drawCorners(time) {
-    this.p5.stroke(200, 50, 100, 0.5); 
+    this.p5.stroke(300, 50, 60, 0.9); 
     this.p5.strokeWeight(1);
     this.corners.forEach(rect => {
       const pulse = Math.sin(time * 0.5 + rect.x * 0.01 + rect.y * 0.01);

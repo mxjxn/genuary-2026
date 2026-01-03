@@ -4,14 +4,14 @@ This document provides a comprehensive reference for all synth definitions (`.sc
 **Total Synth Definitions:** 128
 
 ## Table of Contents
-- [Audio I/O](#audio-i/o) (6 items)
+- [Audio I/O](#audio-io) (6 items)
 - [Drum Machines (Roland TR-808)](#drum-machines-roland-tr-808) (16 items)
 - [Effects (FX)](#effects-fx) (43 items)
 - [FFT Processing](#fft-processing) (7 items)
 - [Mixing](#mixing) (2 items)
 - [Modulated Synths](#modulated-synths) (6 items)
 - [Synthesizers](#synthesizers) (47 items)
-- [Utility](#utility) (1 items)
+- [Utility](#utility) (1 item)
 
 ---
 
@@ -3884,4 +3884,5 @@ Standard ADSR envelope controls:
 - Default values are not stored in the synth definition files
 - Refer to Sonic Pi documentation for default values and more detailed descriptions
 - Not all parameters may be documented - some internal parameters may be listed
+- Parameters marked as "(Parameter purpose not documented)" indicate areas where additional research into Sonic Pi's synth definitions would improve this reference. Contributions to document these parameters are welcome!
 

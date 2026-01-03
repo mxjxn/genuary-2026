@@ -43,7 +43,8 @@ export async function initSupersonic() {
             'sonic-pi-sc808_bassdrum',
             'sonic-pi-sc808_rimshot',
             'sonic-pi-sc808_tomlo',
-            'sonic-pi-fx_reverb'
+            'sonic-pi-fx_reverb',
+            'sonic-pi-fx_echo'
           ]);
           
           console.log('Supersonic booted!');

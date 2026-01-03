@@ -146,7 +146,8 @@ export class Day02 extends BasePrompt {
             note: kickNote,
             amp: 0.8,
             decay: 0.2,
-            release: 0.5
+            release: 0.5,
+            out_bus: 10
           }, { target: 2002 }); // Target Drum Group
         }
       }
@@ -169,11 +170,25 @@ export class Day02 extends BasePrompt {
         // 3. Create Drum Group (2002) After FX Group (2001)
         this.audio.send('/g_new', 2002, 3, 2001);
 
-        // 4. Create Reverb in FX Group
+        // 4. Create Drum FX Group (2003) After Drum Group (2002)
+        this.audio.send('/g_new', 2003, 3, 2002);
+
+        // 5. Create Reverb in FX Group
         this.audio.send('/s_new', 'sonic-pi-fx_reverb', 999, 0, 2001, 
           'room', 15.8, 
           'mix', 0.5, 
           'damp', 0.5, 
+          'amp', 1.0
+        );
+
+        // 6. Create Echo in Drum FX Group
+        // Reads from Bus 10 (Drums), Writes to Bus 0 (Main)
+        this.audio.send('/s_new', 'sonic-pi-fx_echo', 998, 0, 2003,
+          'in_bus', 10,
+          'out_bus', 0,
+          'phase', 0.25,
+          'decay', 2.0,
+          'mix', 0.5,
           'amp', 1.0
         );
     }
@@ -342,7 +357,7 @@ export class Day02 extends BasePrompt {
         p.scaleFactor = p.currentScale;
         
         // Map speed to brightness to prevent over-brightness when slow
-        const brightness = this.p5.map(speed, 0, 5, 20, 40, true);
+        const brightness = this.p5.map(speed, 0, 5, 2, 20, true);
         
         p.currentPos = { x, y };
 
@@ -409,7 +424,7 @@ export class Day02 extends BasePrompt {
     }
     
     // --- Post-Processing Effects ---
-    // this.applySlitScan();
+    this.applySlitScan();
     
     // Draw Tint Zones (OVERLAY Mode) - Very Cheap
     if (this.tintZones.length > 0) {
@@ -427,10 +442,10 @@ export class Day02 extends BasePrompt {
 
   applySlitScan() {
     // Randomly shift horizontal strips
-        for (let i = 0; i < 20; i++) {
-          const y = this.p5.random(this.p5.height);
-          const h = this.p5.random(2, 20);
-          const xOffset = this.p5.random(-5, 5);
+        for (let i = 0; i < 2; i++) {
+          const y = this.p5.random(this.p5.height/8)+this.p5.height/4;
+          const h = this.p5.random(1,8);
+          const xOffset = this.p5.random(-200, 200);
           
           // Copy strip from (0, y) to (xOffset, y)
           this.p5.copy(0, y, this.p5.width, h, xOffset, y, this.p5.width, h);

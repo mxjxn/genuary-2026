@@ -11,7 +11,12 @@ export class Day03 extends BasePrompt {
     
     this.phi = (1 + Math.sqrt(5)) / 2; // Golden ratio
     this.fibonacciSequence = this.generateFibonacci(20);
-    this.scale = 30; // Base size for the first square
+    this.scale = 84; // Base size for the first square (larger for tighter initial zoom)
+    this.viewScale = 1;
+    this.targetViewScale = 2;
+    this.zoomStartScale = 1;
+    this.zoomTransitionDuration = 2000; // ms
+    this.lastZoomUpdateTime = 0;
     
     // Animation state
     this.currentIndex = 0;
@@ -81,6 +86,46 @@ export class Day03 extends BasePrompt {
     return transforms;
   }
 
+  getBounds(maxIndex) {
+    const bounds = {
+      minX: Infinity,
+      maxX: -Infinity,
+      minY: Infinity,
+      maxY: -Infinity,
+      width: 0,
+      height: 0
+    };
+
+    for (let i = 0; i <= maxIndex; i++) {
+      const size = this.fibonacciSequence[i] * this.scale;
+      const transform = this.transforms[i];
+      const cosR = Math.cos(transform.rotation);
+      const sinR = Math.sin(transform.rotation);
+
+      const corners = [
+        { x: 0, y: 0 },
+        { x: size, y: 0 },
+        { x: size, y: size },
+        { x: 0, y: size }
+      ];
+
+      for (const corner of corners) {
+        const worldX = transform.x + cosR * corner.x - sinR * corner.y;
+        const worldY = transform.y + sinR * corner.x + cosR * corner.y;
+
+        bounds.minX = Math.min(bounds.minX, worldX);
+        bounds.maxX = Math.max(bounds.maxX, worldX);
+        bounds.minY = Math.min(bounds.minY, worldY);
+        bounds.maxY = Math.max(bounds.maxY, worldY);
+      }
+    }
+
+    bounds.width = bounds.maxX - bounds.minX;
+    bounds.height = bounds.maxY - bounds.minY;
+
+    return bounds;
+  }
+
   setup() {
     this.p5.background(0);
     this.p5.rectMode(this.p5.CORNER);
@@ -105,9 +150,20 @@ export class Day03 extends BasePrompt {
     
     const centerX = this.p5.width / 2;
     const centerY = this.p5.height / 2;
+
+    const bounds = this.getBounds(Math.min(this.currentIndex, this.fibonacciSequence.length - 1));
+    const padding = 80;
+    const width = Math.max(1, bounds.width);
+    const height = Math.max(1, bounds.height);
+    const scaleX = (this.p5.width - padding) / width;
+    const scaleY = (this.p5.height - padding) / height;
+    this.targetViewScale = Math.min(scaleX, scaleY);
+    this.viewScale = this.computeSmoothZoom(this.targetViewScale);
     
     this.p5.push();
     this.p5.translate(centerX, centerY);
+    this.p5.scale(this.viewScale);
+    this.p5.translate(-(bounds.minX + bounds.width / 2), -(bounds.minY + bounds.height / 2));
     
     // Draw all completed rectangles and arcs
     for (let i = 0; i < this.currentIndex; i++) {
@@ -115,14 +171,19 @@ export class Day03 extends BasePrompt {
       this.drawArc(i, 1.0);
     }
 
+    const shouldDrawCurrentRect = this.state === 'rect' || this.state === 'arc' || this.state === 'pause';
+    const shouldDrawCurrentArc = this.state === 'arc' || this.state === 'pause';
+    const rectProgress = this.state === 'pause' ? 1 : this.rectProgress;
+    const arcProgress = this.state === 'pause' ? 1 : this.arcProgress;
+
     // Draw current square with progress
-    if (this.state === 'rect' || this.state === 'arc') {
-      this.drawSquare(this.currentIndex, this.rectProgress);
+    if (shouldDrawCurrentRect) {
+      this.drawSquare(this.currentIndex, rectProgress);
     }
 
     // Draw current arc with progress
-    if (this.state === 'arc') {
-      this.drawArc(this.currentIndex, this.arcProgress);
+    if (shouldDrawCurrentArc) {
+      this.drawArc(this.currentIndex, arcProgress);
     }
 
     this.p5.pop();
@@ -135,6 +196,7 @@ export class Day03 extends BasePrompt {
         if (elapsed >= this.rectDuration) {
           this.state = 'arc';
           this.stateStartTime = this.p5.millis();
+          this.rectProgress = 1;
           this.arcProgress = 0;
         }
         break;
@@ -144,6 +206,7 @@ export class Day03 extends BasePrompt {
         if (elapsed >= this.arcDuration) {
           this.state = 'pause';
           this.stateStartTime = this.p5.millis();
+          this.arcProgress = 1;
         }
         break;
 
@@ -152,10 +215,16 @@ export class Day03 extends BasePrompt {
           this.currentIndex++;
           if (this.currentIndex >= this.fibonacciSequence.length) {
             this.currentIndex = 0; // Loop
+            this.viewScale = 1;
+            this.targetViewScale = 1;
+            this.zoomStartScale = 1;
           }
           this.state = 'rect';
           this.stateStartTime = this.p5.millis();
           this.rectProgress = 0;
+          this.arcProgress = 0;
+          this.zoomStartScale = this.viewScale;
+          this.lastZoomUpdateTime = this.p5.millis();
         }
         break;
     }
@@ -170,8 +239,10 @@ export class Day03 extends BasePrompt {
     const transform = this.transforms[index];
     
     const hue = (index * 30) % 360;
-    this.p5.fill(hue, 70, 80);
-    this.p5.noStroke();
+    this.p5.noFill();
+    this.p5.stroke(hue, 70, 80);
+    const strokeWidth = Math.max(1, 2 / this.viewScale);
+    this.p5.strokeWeight(strokeWidth);
 
     this.p5.push();
     this.p5.translate(transform.x, transform.y);
@@ -184,11 +255,26 @@ export class Day03 extends BasePrompt {
     
     // Draw index number
     this.p5.fill(0);
+    this.p5.noStroke();
     this.p5.textAlign(this.p5.CENTER, this.p5.CENTER);
     this.p5.textSize(Math.max(8, size / 8));
     this.p5.text(index, size / 2, size / 2);
     
     this.p5.pop();
+  }
+
+  computeSmoothZoom(newTarget) {
+    if (this.targetViewScale !== newTarget) {
+      this.zoomStartScale = this.viewScale;
+      this.lastZoomUpdateTime = this.p5.millis();
+    }
+    this.targetViewScale = newTarget;
+    const elapsed = this.p5.millis() - this.lastZoomUpdateTime;
+    const t = Math.min(1, elapsed / this.zoomTransitionDuration);
+    const eased = t < 0.5
+      ? 2 * t * t
+      : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out quad
+    return this.p5.lerp(this.zoomStartScale, this.targetViewScale, eased);
   }
 
   /**
@@ -201,7 +287,8 @@ export class Day03 extends BasePrompt {
     
     const hue = (index * 30) % 360;
     this.p5.stroke(hue, 60, 100);
-    this.p5.strokeWeight(2);
+    const strokeWidth = Math.max(1, 2 / this.viewScale);
+    this.p5.strokeWeight(strokeWidth);
     this.p5.noFill();
 
     this.p5.push();

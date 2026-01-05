@@ -8,6 +8,89 @@ const GRID_CONFIG = {
   rowsPerTrack: 3,
 };
 
+// ANSI glyph sets inspired by vintage terminal palettes and
+// shading techniques outlined in https://hbfs.wordpress.com/2017/11/14/ansi-art/
+const ANSI_THEMES = [
+  {
+    id: 'dots',
+    name: 'DOT MATRIX',
+    emptyChars: '..',
+    activeChars: '[]',
+    tieChars: '--',
+    cursorTieChars: '==',
+    playheadTieChars: '--',
+    cursorEmptyChars: '<>',
+    cursorActiveChars: '##',
+    playheadBg: '#0E1C33',
+    cursorBgEmpty: '#14344F',
+    cursorBgActive: '#223B4F',
+    inactiveFg: '#7C8DAA',
+    activeFg: null,
+    tieFg: '#FFC857',
+    cursorTieFg: '#FFFFFF',
+    cursorFgEmpty: '#F5F7FA',
+    cursorFgActive: null,
+    markerMajor: '|',
+    markerMinor: ':',
+    markerColor: '#5A8FD1',
+    meterFillChar: '#',
+    meterEmptyChar: '-',
+    meterEmptyColor: '#486079',
+  },
+  {
+    id: 'bricks',
+    name: 'BRICK TONES',
+    emptyChars: '..',
+    activeChars: '##',
+    tieChars: '--',
+    cursorTieChars: '[]',
+    playheadTieChars: '<>',
+    cursorEmptyChars: '<>',
+    cursorActiveChars: '[]',
+    playheadBg: '#1A0F22',
+    cursorBgEmpty: '#2B1533',
+    cursorBgActive: '#3E1E46',
+    inactiveFg: '#B0A0C3',
+    activeFg: '#F8F1FF',
+    tieFg: '#FFB74D',
+    cursorTieFg: '#FFFFFF',
+    cursorFgEmpty: '#F8F1FF',
+    cursorFgActive: '#FFFFFF',
+    markerMajor: '#',
+    markerMinor: ':',
+    markerColor: '#C18DF2',
+    meterFillChar: '#',
+    meterEmptyChar: '.',
+    meterEmptyColor: '#5E4C72',
+  },
+  {
+    id: 'scanlines',
+    name: 'SCANLINES',
+    emptyChars: '//',
+    activeChars: '||',
+    tieChars: '==',
+    cursorTieChars: '<>',
+    playheadTieChars: '||',
+    cursorEmptyChars: '<>',
+    cursorActiveChars: '[]',
+    playheadBg: '#102119',
+    cursorBgEmpty: '#1E3A2D',
+    cursorBgActive: '#27513F',
+    inactiveFg: '#6FAF8F',
+    activeFg: '#B3FFD5',
+    tieFg: '#9CFFCB',
+    cursorTieFg: '#FFFFFF',
+    cursorFgEmpty: '#D2F8E4',
+    cursorFgActive: '#FFFFFF',
+    markerMajor: '+',
+    markerMinor: ':',
+    markerColor: '#5EC09F',
+    meterFillChar: '=',
+    meterEmptyChar: '-',
+    meterEmptyColor: '#32604A',
+  }
+];
+
 export class Day04 extends BasePrompt {
   constructor(p5Instance, bridge) {
     super(p5Instance, bridge);
@@ -30,10 +113,39 @@ export class Day04 extends BasePrompt {
 
     this.tracks = this.createTracks();
     this.trackActivity = new Array(this.tracks.length).fill(0);
+    this.themeIndex = 0;
+    this.theme = ANSI_THEMES[this.themeIndex];
+    this.voiceState = { bass: null, lead: null };
+  }
+
+  getTheme() {
+    return ANSI_THEMES[this.themeIndex % ANSI_THEMES.length];
+  }
+
+  setTheme(index) {
+    const count = ANSI_THEMES.length;
+    if (!count) {
+      return;
+    }
+    this.themeIndex = (index + count) % count;
+    this.theme = this.getTheme();
+  }
+
+  cycleTheme(direction = 1) {
+    this.setTheme(this.themeIndex + direction);
+  }
+
+  getStepDurationSeconds() {
+    return 60 / this.bpm / 4;
+  }
+
+  getPrevStepIndex(index) {
+    return (index - 1 + this.patternLength) % this.patternLength;
   }
 
   createTracks() {
     const hatsPattern = Array.from({ length: this.patternLength }, (_, idx) => idx % 2 === 0);
+    const createTieArray = () => Array.from({ length: this.patternLength }, () => false);
     return [
       {
         id: 'bass',
@@ -42,6 +154,7 @@ export class Day04 extends BasePrompt {
         color: this.palette[10],
         steps: this.seedPattern([0, 4, 8, 12]),
         notes: [36, 36, 34, 39],
+        ties: createTieArray(),
       },
       {
         id: 'snare',
@@ -49,6 +162,7 @@ export class Day04 extends BasePrompt {
         type: 'noise-mid',
         color: this.palette[9],
         steps: this.seedPattern([4, 12]),
+        ties: createTieArray(),
       },
       {
         id: 'hats',
@@ -56,6 +170,7 @@ export class Day04 extends BasePrompt {
         type: 'noise-hi',
         color: this.palette[15],
         steps: hatsPattern,
+        ties: createTieArray(),
       },
       {
         id: 'lead',
@@ -63,9 +178,17 @@ export class Day04 extends BasePrompt {
         type: 'lead',
         color: this.palette[12],
         steps: this.seedPattern([2, 6, 10, 14]),
-        notes: [72, 74, 76, 79],
+        notes: [60, 70, 74, 76, 79],
+        ties: createTieArray(),
       },
     ];
+  }
+
+  isVoiceTrack(track) {
+    if (!track) {
+      return false;
+    }
+    return track.type === 'bass' || track.type === 'lead';
   }
 
   seedPattern(activeSteps) {
@@ -125,6 +248,9 @@ export class Day04 extends BasePrompt {
     this.tracks.forEach((track, trackIndex) => {
       if (!track.steps[stepIndex]) {
         this.trackActivity[trackIndex] *= 0.85;
+        if (this.isVoiceTrack(track)) {
+          this.releaseVoice(track.id);
+        }
         return;
       }
 
@@ -152,16 +278,21 @@ export class Day04 extends BasePrompt {
     if (!this.audio) {
       return;
     }
-    const note = track.notes?.[stepIndex % track.notes.length] ?? 36;
-    this.audio.synth('sonic-pi-chipbass', {
-      note,
-      amp: 0.4,
-      attack: 0.005,
-      decay: 0.15,
-      sustain: 0.2,
-      release: 0.5,
-      pan: this.p5.random(-0.2, 0.2),
-    }, { target: this.audioGroups.bass ?? 0 });
+    const pool = (track.notes && track.notes.length) ? track.notes : [36];
+    const note = pool[stepIndex % pool.length];
+    this.handleVoiceStep(track, stepIndex, note, {
+      synth: 'sonic-pi-chipbass',
+      group: this.audioGroups.bass ?? 0,
+      slide: 0.22,
+      params: {
+        amp: 0.4,
+        attack: 0.01,
+        decay: 0.08,
+        sustain: 0.35,
+        release: 0.2,
+        pan: this.p5.random(-0.2, 0.2),
+      },
+    });
   }
 
   triggerNoise(track, stepIndex, freqBand, amp) {
@@ -174,34 +305,63 @@ export class Day04 extends BasePrompt {
       attack: 0.002,
       decay: 0.05,
       sustain: 0.05,
-      release: 0.05,
+      release: 0,
       freq_band: freqBand,
       pan,
     }, { target: this.audioGroups.noise ?? 0 });
   }
 
-  triggerLead(track) {
+  triggerLead(track, stepIndex) {
     if (!this.audio) {
       return;
     }
-    const notes = track.notes ?? [72, 76, 79];
-    notes.forEach((note, idx) => {
-      this.scheduleTimeout(() => {
-        if (!this.audio) {
-          return;
-        }
-        this.audio.synth('sonic-pi-chiplead', {
-          note,
-          amp: 0.12,
-          attack: 0.01,
-          decay: 0.05,
-          sustain: 0.15,
-          release: 0.08,
-          width: 0.3 + idx * 0.1,
-          pan: this.p5.map(idx, 0, notes.length - 1, -0.4, 0.4),
-        }, { target: this.audioGroups.lead ?? 0 });
-      }, idx * 35);
+    const pool = (track.notes && track.notes.length) ? track.notes : [72];
+    const note = pool[stepIndex % pool.length];
+    this.handleVoiceStep(track, stepIndex, note, {
+      synth: 'sonic-pi-chiplead',
+      group: this.audioGroups.lead ?? 0,
+      slide: 0.14,
+      params: {
+        amp: 0.18,
+        attack: 0.02,
+        decay: 0.08,
+        sustain: 0.25,
+        release: 0.18,
+        width: 0.45,
+        pan: this.p5.map(stepIndex % this.patternLength, 0, this.patternLength - 1, -0.5, 0.5),
+      },
     });
+  }
+
+  handleVoiceStep(track, stepIndex, note, options = {}) {
+    if (!this.audio) {
+      return;
+    }
+    const trackId = track.id;
+    const tie = Boolean(track.ties?.[stepIndex]);
+    const prevIndex = this.getPrevStepIndex(stepIndex);
+    const prevTie = Boolean(track.ties?.[prevIndex] && track.steps?.[prevIndex]);
+    const gateFraction = tie ? 1 : (options.gateFraction ?? 0.5);
+    const voice = this.voiceState[trackId];
+    const slide = options.slide ?? 0.18;
+
+    if (voice && prevTie) {
+      this.cancelVoiceRelease(trackId);
+      this.audio.send('/n_set', voice.nodeId, 'note', note);
+    } else {
+      this.releaseVoice(trackId);
+      const nodeId = this.spawnSynth(options.synth, {
+        ...(options.params ?? {}),
+        note,
+        note_slide: slide,
+      }, options.group ?? 0);
+      if (!nodeId) {
+        return;
+      }
+      this.voiceState[trackId] = { nodeId, releaseTimer: null };
+    }
+
+    this.scheduleVoiceRelease(trackId, gateFraction);
   }
 
   scheduleTimeout(callback, delay) {
@@ -213,8 +373,56 @@ export class Day04 extends BasePrompt {
     return id;
   }
 
+  cancelTimeout(id) {
+    if (!id) {
+      return;
+    }
+    clearTimeout(id);
+    this.pendingTimeouts = this.pendingTimeouts.filter((timer) => timer !== id);
+  }
+
+  scheduleVoiceRelease(trackId, gateFraction = 0.5) {
+    const voice = this.voiceState[trackId];
+    if (!voice) {
+      return;
+    }
+    const durationMs = Math.max(10, this.getStepDurationSeconds() * gateFraction * 1000);
+    this.cancelVoiceRelease(trackId);
+    voice.releaseTimer = this.scheduleTimeout(() => {
+      this.releaseVoice(trackId);
+    }, durationMs);
+  }
+
+  cancelVoiceRelease(trackId) {
+    const voice = this.voiceState[trackId];
+    if (!voice || !voice.releaseTimer) {
+      return;
+    }
+    this.cancelTimeout(voice.releaseTimer);
+    voice.releaseTimer = null;
+  }
+
+  releaseVoice(trackId) {
+    const voice = this.voiceState[trackId];
+    if (!voice) {
+      return;
+    }
+    this.cancelVoiceRelease(trackId);
+    if (this.audio) {
+      this.audio.send('/n_free', voice.nodeId);
+    }
+    this.voiceState[trackId] = null;
+  }
+
+  releaseAllVoices() {
+    Object.keys(this.voiceState).forEach((trackId) => {
+      this.releaseVoice(trackId);
+    });
+  }
+
   draw() {
     this.bridge.updateState();
+    this.theme = this.getTheme();
     this.p5.background(6, 80, 8, 1);
     this.buffer.clear(' ', { fg: this.palette[7], bg: '#04070D' });
 
@@ -227,10 +435,13 @@ export class Day04 extends BasePrompt {
   }
 
   drawChrome() {
+    const theme = this.theme ?? this.getTheme();
     const title = 'SYS/04 LOW-RES SEQUENCER';
     this.buffer.drawBox(1, 1, 62, 30, { fg: this.palette[8] });
     this.buffer.write(3, 2, title.padEnd(40), { fg: this.palette[15] });
     this.buffer.write(44, 2, `BPM:${String(this.bpm).padStart(3, '0')}`, { fg: this.palette[11] });
+    const themeLabel = `THEME:${theme?.name ?? 'UNKNOWN'}`.padEnd(26);
+    this.buffer.write(3, 3, themeLabel, { fg: theme?.markerColor ?? this.palette[13] });
   }
 
   drawGrid() {
@@ -238,11 +449,13 @@ export class Day04 extends BasePrompt {
     const originY = GRID_CONFIG.originY;
     const stepWidth = GRID_CONFIG.stepWidth;
     const rowsPerTrack = GRID_CONFIG.rowsPerTrack;
+    const theme = this.theme ?? this.getTheme();
 
     for (let col = 0; col < this.patternLength; col++) {
       const measureMarker = col % 4 === 0;
-      const markerChar = measureMarker ? '|' : ':';
-      this.buffer.set(originX + col * stepWidth, originY - 1, markerChar, { fg: this.palette[5] });
+      const markerChar = measureMarker ? (theme?.markerMajor ?? '|') : (theme?.markerMinor ?? ':');
+      const markerStyle = { fg: theme?.markerColor ?? this.palette[5] };
+      this.buffer.set(originX + col * stepWidth, originY - 1, markerChar, markerStyle);
     }
 
     this.tracks.forEach((track, trackIndex) => {
@@ -255,22 +468,75 @@ export class Day04 extends BasePrompt {
         const isActive = track.steps[step];
         const isCursor = this.cursor.track === trackIndex && this.cursor.step === step;
         const isPlayhead = this.playheadStep === step;
-        const chars = isActive ? '[]' : '..';
-        const style = this.getCellStyle(track.color, isActive, isCursor, isPlayhead);
+        const isTie = Boolean(track.ties?.[step]);
+        const chars = this.getCellChars(isActive, isCursor, isPlayhead, isTie);
+        const style = this.getCellStyle(track.color, isActive, isCursor, isPlayhead, isTie);
         this.buffer.write(cellX, rowY, chars, style);
       }
     });
   }
 
-  getCellStyle(color, isActive, isCursor, isPlayhead) {
-    let fg = isActive ? color : this.palette[7];
+  fitChars(chars) {
+    const width = GRID_CONFIG.stepWidth;
+    if (!chars || typeof chars !== 'string') {
+      return ' '.repeat(width);
+    }
+    return chars.padEnd(width, ' ').slice(0, width);
+  }
+
+  getCellChars(isActive, isCursor, isPlayhead, isTie) {
+    const theme = this.theme ?? this.getTheme();
+    const activeChars = theme?.activeChars ?? '[]';
+    const emptyChars = theme?.emptyChars ?? '..';
+    const tieChars = theme?.tieChars ?? '--';
+    const cursorTieChars = theme?.cursorTieChars ?? tieChars;
+    const playheadTieChars = theme?.playheadTieChars ?? tieChars;
+
+    if (isTie) {
+      if (isCursor) {
+        return this.fitChars(cursorTieChars);
+      }
+      if (isPlayhead) {
+        return this.fitChars(playheadTieChars);
+      }
+      return this.fitChars(tieChars);
+    }
+    if (isCursor && isActive) {
+      return this.fitChars(theme?.cursorActiveChars ?? activeChars);
+    }
+    if (isCursor && !isActive) {
+      return this.fitChars(theme?.cursorEmptyChars ?? emptyChars);
+    }
+    if (isPlayhead && !isActive) {
+      return this.fitChars(theme?.playheadChars ?? emptyChars);
+    }
+    if (isPlayhead && isActive) {
+      return this.fitChars(theme?.playheadActiveChars ?? activeChars);
+    }
+    return this.fitChars(isActive ? activeChars : emptyChars);
+  }
+
+  getCellStyle(color, isActive, isCursor, isPlayhead, isTie) {
+    const theme = this.theme ?? this.getTheme();
+    const activeFg = theme?.activeFg ?? color;
+    const inactiveFg = theme?.inactiveFg ?? this.palette[7];
+    const tieFg = theme?.tieFg ?? activeFg;
+    const cursorTieFg = theme?.cursorTieFg ?? this.palette[15];
+    let fg = isActive ? activeFg : inactiveFg;
     let bg = null;
+    if (isTie && isActive && !isCursor) {
+      fg = tieFg;
+    }
     if (isPlayhead && !isCursor) {
-      bg = '#0E1C33';
+      bg = theme?.playheadBg ?? '#0E1C33';
     }
     if (isCursor) {
-      bg = isActive ? '#223B4F' : '#14344F';
-      fg = isActive ? color : this.palette[15];
+      bg = isActive ? (theme?.cursorBgActive ?? '#223B4F') : (theme?.cursorBgEmpty ?? '#14344F');
+      if (isTie && isActive) {
+        fg = cursorTieFg;
+      } else {
+        fg = isActive ? (theme?.cursorFgActive ?? activeFg) : (theme?.cursorFgEmpty ?? this.palette[15]);
+      }
     }
     return { fg, bg };
   }
@@ -278,12 +544,16 @@ export class Day04 extends BasePrompt {
   drawMeters() {
     const meterX = 4;
     const startY = 6;
+    const theme = this.theme ?? this.getTheme();
+    const fillChar = theme?.meterFillChar ?? '#';
+    const emptyChar = theme?.meterEmptyChar ?? '-';
+    const emptyColor = theme?.meterEmptyColor ?? this.palette[7];
     this.tracks.forEach((track, idx) => {
       const level = this.trackActivity[idx] ?? 0;
       const meterWidth = Math.round(level * 8);
       for (let i = 0; i < 8; i++) {
-        const char = i < meterWidth ? '#' : '-';
-        const fg = i < meterWidth ? track.color : this.palette[7];
+        const char = i < meterWidth ? fillChar : emptyChar;
+        const fg = i < meterWidth ? track.color : emptyColor;
         this.buffer.set(meterX + i, startY + idx * GRID_CONFIG.rowsPerTrack + 1, char, { fg });
       }
       this.trackActivity[idx] *= 0.92;
@@ -292,8 +562,8 @@ export class Day04 extends BasePrompt {
 
   drawFooter() {
     const infoY = 28;
-    this.buffer.write(4, infoY, 'ARROWS MOVE  | SPACE:TOGGLE | -/+ BPM | R: RANDOM ROW', { fg: this.palette[13] });
-    this.buffer.write(4, infoY + 1, 'CLICK STEPS TO PAINT | ANSI UI PROTOTYPE', { fg: this.palette[11] });
+    this.buffer.write(4, infoY, 'ARROWS MOVE | SPACE:STEP | G:TIE | SHIFT+CLICK=TIE | -/+ BPM', { fg: this.palette[13] });
+    this.buffer.write(4, infoY + 1, '[ ] OR T:THEME | R:ROW RANDOM | ANSI SEQ PROTOTYPE', { fg: this.palette[11] });
   }
 
   keyPressed(event) {
@@ -321,9 +591,23 @@ export class Day04 extends BasePrompt {
       case '+':
         this.adjustBPM(2);
         break;
+      case '[':
+        this.cycleTheme(-1);
+        break;
+      case ']':
+        this.cycleTheme(1);
+        break;
+      case 't':
+      case 'T':
+        this.cycleTheme(1);
+        break;
       case 'r':
       case 'R':
         this.randomizeRow(this.cursor.track);
+        break;
+      case 'g':
+      case 'G':
+        this.toggleTie(this.cursor.track, this.cursor.step);
         break;
       default:
         break;
@@ -336,7 +620,11 @@ export class Day04 extends BasePrompt {
       return;
     }
     this.cursor = cell;
-    this.toggleCurrentStep();
+    if (this.p5.keyIsDown(this.p5.SHIFT)) {
+      this.toggleTie(cell.track, cell.step);
+    } else {
+      this.toggleCurrentStep();
+    }
   }
 
   getGridCellFromPointer(px, py) {
@@ -379,6 +667,20 @@ export class Day04 extends BasePrompt {
       return;
     }
     track.steps[this.cursor.step] = !track.steps[this.cursor.step];
+    if (!track.steps[this.cursor.step]) {
+      track.ties[this.cursor.step] = false;
+    }
+  }
+
+  toggleTie(trackIndex, stepIndex) {
+    const track = this.tracks[trackIndex];
+    if (!track) {
+      return;
+    }
+    if (!track.steps[stepIndex]) {
+      track.steps[stepIndex] = true;
+    }
+    track.ties[stepIndex] = !track.ties[stepIndex];
   }
 
   adjustBPM(delta) {
@@ -399,13 +701,39 @@ export class Day04 extends BasePrompt {
         probability = 0.5;
       }
       track.steps[step] = this.p5.random() < probability;
+      track.ties[step] = false;
     }
+  }
+
+  spawnSynth(name, params = {}, target = 0, action = 0) {
+    if (!this.audio) {
+      return null;
+    }
+    const nodeId = this.nextNodeId++;
+    const args = this.flattenParams(params);
+    this.audio.send('/s_new', name, nodeId, action, target ?? 0, ...args);
+    return nodeId;
+  }
+
+  flattenParams(params) {
+    const flattened = [];
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) {
+        return;
+      }
+      if (typeof value === 'number' && Number.isNaN(value)) {
+        return;
+      }
+      flattened.push(key, value);
+    });
+    return flattened;
   }
 
   cleanup() {
     if (this.bridge?.sequencer) {
       this.bridge.sequencer.unschedule(this.sequenceId);
     }
+    this.releaseAllVoices();
     if (this.pendingTimeouts.length) {
       this.pendingTimeouts.forEach((id) => clearTimeout(id));
       this.pendingTimeouts = [];

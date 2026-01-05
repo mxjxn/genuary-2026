@@ -15,8 +15,15 @@ export class Day03 extends BasePrompt {
     this.viewScale = 1;
     this.targetViewScale = 2;
     this.zoomStartScale = 1;
-    this.zoomTransitionDuration = 2000; // ms
+    this.zoomTransitionDuration = 200; // ms
     this.lastZoomUpdateTime = 0;
+    this.viewCenter = { x: 0, y: 0 };
+    this.targetCenter = { x: 0, y: 0 };
+    this.centerStart = { x: 0, y: 0 };
+    this.centerTransitionDuration = 200; // ms
+    this.lastCenterUpdateTime = 0;
+    this.historyLength = 10;
+    this.maxWorldMagnitude = 1e6;
     
     // Animation state
     this.currentIndex = 0;
@@ -24,15 +31,28 @@ export class Day03 extends BasePrompt {
     this.arcProgress = 0;
     
     // Timing (in milliseconds)
-    this.rectDuration = 600;
-    this.arcDuration = 800;
-    this.pauseDuration = 200;
+    this.rectDuration = 100;
+    this.arcDuration = 100;
+    this.pauseDuration = 1000;
     
     this.stateStartTime = 0;
     this.state = 'rect'; // 'rect', 'arc', 'pause'
     
     // Transform state - precompute all positions
     this.transforms = this.computeTransforms();
+
+    // Audio interaction state
+    this.audioReady = false;
+    this.audioGroups = { noise: null, bass: null, lead: null };
+    this.groupsCreated = false;
+    this.noiseTriggerIndex = -1;
+    this.arpTriggerIndex = -1;
+    this.bassTriggerIndex = -1;
+    this.centerDirectionPattern = ['up', 'up', 'down', 'down'];
+    this.centerDirectionStep = 0;
+    this.chordRoots = [60, 62, 64, 66]; // Major 7(9) stepping by whole tone
+    this.nextNodeId = 5200;
+    this.pendingTimeouts = [];
   }
 
   generateFibonacci(count) {
@@ -86,7 +106,9 @@ export class Day03 extends BasePrompt {
     return transforms;
   }
 
-  getBounds(maxIndex) {
+  getBounds(startIndex, maxIndex) {
+    const start = Math.max(0, startIndex || 0);
+    const end = Math.max(start, maxIndex || start);
     const bounds = {
       minX: Infinity,
       maxX: -Infinity,
@@ -96,7 +118,7 @@ export class Day03 extends BasePrompt {
       height: 0
     };
 
-    for (let i = 0; i <= maxIndex; i++) {
+    for (let i = start; i <= end; i++) {
       const size = this.fibonacciSequence[i] * this.scale;
       const transform = this.transforms[i];
       const cosR = Math.cos(transform.rotation);
@@ -137,7 +159,183 @@ export class Day03 extends BasePrompt {
   }
 
   setupAudio() {
-    // Optional: Add audio triggers based on animation state
+    if (!this.audio) {
+      return;
+    }
+
+    this.ensureAudioGroups();
+    this.audioReady = true;
+    this.noiseTriggerIndex = -1;
+    this.arpTriggerIndex = -1;
+    this.bassTriggerIndex = -1;
+
+    if (this.state === 'rect') {
+      this.onEnterRectState(false);
+    }
+  }
+
+  ensureAudioGroups() {
+    if (!this.audio || this.groupsCreated) {
+      return;
+    }
+
+    const baseGroup = 4300;
+    this.audio.send('/g_new', baseGroup, 0, 0);
+    this.audio.send('/g_new', baseGroup + 1, 3, baseGroup);
+    this.audio.send('/g_new', baseGroup + 2, 3, baseGroup + 1);
+    this.audioGroups = {
+      noise: baseGroup,
+      bass: baseGroup + 1,
+      lead: baseGroup + 2,
+    };
+    this.groupsCreated = true;
+  }
+
+  onEnterRectState(isNewIndex) {
+    if (!this.audioReady) {
+      return;
+    }
+
+    this.triggerRectNoise(this.currentIndex);
+    if (isNewIndex) {
+      this.triggerCenterBass(this.currentIndex);
+    }
+  }
+
+  onEnterArcState() {
+    if (!this.audioReady) {
+      return;
+    }
+    this.triggerLeadArp(this.currentIndex);
+  }
+
+  triggerRectNoise(index) {
+    if (!this.audioReady || !this.audio) {
+      return;
+    }
+    if (this.noiseTriggerIndex === index) {
+      return;
+    }
+
+    this.noiseTriggerIndex = index;
+    const releaseSeconds = (this.rectDuration / 1000) * 0.2;
+    const freqBand = 300 + (index % 5) * 220;
+    const amp = Math.min(0.35, 0.18 + Math.min(index, 12) * 0.01);
+
+    this.audio.synth('sonic-pi-chipnoise', {
+      amp,
+      attack: 0.005,
+      decay: releaseSeconds * 0.05,
+      sustain: 0.15,
+      release: 0.10,
+      freq_band: freqBand,
+      pan: this.p5.map(Math.sin(index * 0.6), -1, 1, -0.4, 0.4)
+    }, { target: this.audioGroups.noise ?? 0 });
+  }
+
+  triggerCenterBass(index) {
+    if (!this.audioReady || !this.audio) {
+      return;
+    }
+    if (this.bassTriggerIndex === index) {
+      return;
+    }
+
+    this.bassTriggerIndex = index;
+    const direction = this.centerDirectionPattern[this.centerDirectionStep % this.centerDirectionPattern.length];
+    this.centerDirectionStep++;
+    const baseNote = 36 + (index % 5);
+    const slide = direction === 'up' ? 3 : -3;
+    const targetNote = this.p5.constrain(baseNote + slide, 28, 52);
+
+    const nodeId = this.spawnSynth('sonic-pi-chipbass', {
+      note: baseNote,
+      note_slide: 0.25,
+      amp: 0.35,
+      attack: 0.005,
+      decay: 0.18,
+      sustain: 0.35,
+      release: 0.6,
+      pan: this.p5.map(Math.cos(index * 0.5), -1, 1, -0.4, 0.4)
+    }, this.audioGroups.bass ?? 0);
+
+    if (nodeId) {
+      this.scheduleTimeout(() => {
+        if (this.audio) {
+          this.audio.send('/n_set', nodeId, 'note', targetNote);
+        }
+      }, 40);
+    }
+  }
+
+  triggerLeadArp(index) {
+    if (!this.audioReady || !this.audio) {
+      return;
+    }
+    if (this.arpTriggerIndex === index) {
+      return;
+    }
+
+    this.arpTriggerIndex = index;
+    const chord = this.getChordForIndex(index);
+    const stepMs = 20;
+
+    chord.forEach((note, idx) => {
+      this.scheduleTimeout(() => {
+        if (!this.audio) {
+          return;
+        }
+        this.audio.synth('sonic-pi-chiplead', {
+          note,
+          amp: 0.12,
+          attack: 0.01,
+          decay: 0.05,
+          sustain: 0.25,
+          release: 0.05,
+          width: 0.4 + idx * 0.08,
+          pan: this.p5.map(idx, 0, chord.length - 1, -0.5, 0.5)
+        }, { target: this.audioGroups.lead ?? 0 });
+      }, stepMs * idx);
+    });
+  }
+
+  getChordForIndex(index) {
+    const chordIdx = index % this.chordRoots.length;
+    const root = this.chordRoots[chordIdx];
+    return [root, root + 4, root + 7, root + 11, root + 14];
+  }
+
+  spawnSynth(name, params = {}, target = 0, action = 0) {
+    if (!this.audio) {
+      return null;
+    }
+    const nodeId = this.nextNodeId++;
+    const args = this.flattenParams(params);
+    this.audio.send('/s_new', name, nodeId, action, target ?? 0, ...args);
+    return nodeId;
+  }
+
+  flattenParams(params) {
+    const flattened = [];
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) {
+        return;
+      }
+      if (typeof value === 'number' && Number.isNaN(value)) {
+        return;
+      }
+      flattened.push(key, value);
+    });
+    return flattened;
+  }
+
+  scheduleTimeout(callback, delay) {
+    const timerId = setTimeout(() => {
+      callback();
+      this.pendingTimeouts = this.pendingTimeouts.filter((id) => id !== timerId);
+    }, delay);
+    this.pendingTimeouts.push(timerId);
+    return timerId;
   }
 
   draw() {
@@ -151,22 +349,30 @@ export class Day03 extends BasePrompt {
     const centerX = this.p5.width / 2;
     const centerY = this.p5.height / 2;
 
-    const bounds = this.getBounds(Math.min(this.currentIndex, this.fibonacciSequence.length - 1));
-    const padding = 80;
+    const maxRenderableIndex = Math.min(this.currentIndex, this.fibonacciSequence.length - 1);
+    const startIndex = Math.max(0, maxRenderableIndex - this.historyLength);
+    this.extendSequenceTo(this.currentIndex + this.historyLength + 2);
+    const bounds = this.getBounds(startIndex, maxRenderableIndex);
     const width = Math.max(1, bounds.width);
     const height = Math.max(1, bounds.height);
-    const scaleX = (this.p5.width - padding) / width;
-    const scaleY = (this.p5.height - padding) / height;
+    const padding = 0.8;
+    const scaleX = (this.p5.width - padding) / width * padding;
+    const scaleY = (this.p5.height - padding) / height * padding;
     this.targetViewScale = Math.min(scaleX, scaleY);
     this.viewScale = this.computeSmoothZoom(this.targetViewScale);
+    const targetCenter = {
+      x: bounds.minX + bounds.width / 2,
+      y: bounds.minY + bounds.height / 2
+    };
+    const currentCenter = this.computeSmoothCenter(targetCenter);
     
     this.p5.push();
     this.p5.translate(centerX, centerY);
     this.p5.scale(this.viewScale);
-    this.p5.translate(-(bounds.minX + bounds.width / 2), -(bounds.minY + bounds.height / 2));
+    this.p5.translate(-currentCenter.x, -currentCenter.y);
     
     // Draw all completed rectangles and arcs
-    for (let i = 0; i < this.currentIndex; i++) {
+    for (let i = startIndex; i < this.currentIndex; i++) {
       this.drawSquare(i, 1.0);
       this.drawArc(i, 1.0);
     }
@@ -198,6 +404,7 @@ export class Day03 extends BasePrompt {
           this.stateStartTime = this.p5.millis();
           this.rectProgress = 1;
           this.arcProgress = 0;
+          this.onEnterArcState();
         }
         break;
 
@@ -213,18 +420,14 @@ export class Day03 extends BasePrompt {
       case 'pause':
         if (elapsed >= this.pauseDuration) {
           this.currentIndex++;
-          if (this.currentIndex >= this.fibonacciSequence.length) {
-            this.currentIndex = 0; // Loop
-            this.viewScale = 1;
-            this.targetViewScale = 1;
-            this.zoomStartScale = 1;
-          }
           this.state = 'rect';
           this.stateStartTime = this.p5.millis();
           this.rectProgress = 0;
           this.arcProgress = 0;
           this.zoomStartScale = this.viewScale;
           this.lastZoomUpdateTime = this.p5.millis();
+          this.extendSequenceTo(this.currentIndex + this.historyLength + 2);
+          this.onEnterRectState(true);
         }
         break;
     }
@@ -277,6 +480,87 @@ export class Day03 extends BasePrompt {
     return this.p5.lerp(this.zoomStartScale, this.targetViewScale, eased);
   }
 
+  computeSmoothCenter(newTarget) {
+    if (
+      this.targetCenter.x !== newTarget.x ||
+      this.targetCenter.y !== newTarget.y
+    ) {
+      this.centerStart = { ...this.viewCenter };
+      this.targetCenter = { ...newTarget };
+      this.lastCenterUpdateTime = this.p5.millis();
+    }
+
+    const elapsed = this.p5.millis() - this.lastCenterUpdateTime;
+    const t = Math.min(1, elapsed / this.centerTransitionDuration);
+    const eased = t < 0.5
+      ? 2 * t * t
+      : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+    this.viewCenter = {
+      x: this.p5.lerp(this.centerStart.x, this.targetCenter.x, eased),
+      y: this.p5.lerp(this.centerStart.y, this.targetCenter.y, eased)
+    };
+
+    return this.viewCenter;
+  }
+
+  extendSequenceTo(targetIndex) {
+    while (this.fibonacciSequence.length <= targetIndex + 2) {
+      const len = this.fibonacciSequence.length;
+      const next = this.fibonacciSequence[len - 1] + this.fibonacciSequence[len - 2];
+      this.fibonacciSequence.push(next);
+    }
+
+    while (this.transforms.length <= targetIndex) {
+      const lastIndex = this.transforms.length - 1;
+      const prevTransform = this.transforms[lastIndex];
+      const prevRotation = prevTransform.rotation;
+      const prevSize = this.fibonacciSequence[lastIndex] * this.scale;
+      const nextIndex = lastIndex + 1;
+      const nextSize = this.fibonacciSequence[nextIndex] * this.scale;
+      let x = prevTransform.x - Math.sin(prevRotation) * prevSize;
+      let y = prevTransform.y + Math.cos(prevRotation) * prevSize;
+      const rotation = prevRotation + Math.PI / 2;
+      x += Math.cos(rotation) * (-nextSize);
+      y += Math.sin(rotation) * (-nextSize);
+      this.transforms.push({ x, y, rotation });
+    }
+
+    this.normalizeIfNeeded();
+  }
+
+  normalizeIfNeeded() {
+    const lastTransform = this.transforms[this.transforms.length - 1];
+    const maxCoord = Math.max(
+      Math.abs(lastTransform.x),
+      Math.abs(lastTransform.y)
+    );
+    const lastSize = this.fibonacciSequence[this.fibonacciSequence.length - 1] * this.scale;
+    if (maxCoord < this.maxWorldMagnitude && lastSize < this.maxWorldMagnitude) {
+      return;
+    }
+
+    const factor = Math.pow(this.phi, 6);
+
+    for (let i = 0; i < this.transforms.length; i++) {
+      this.transforms[i].x /= factor;
+      this.transforms[i].y /= factor;
+    }
+
+    this.scale /= factor;
+
+    this.viewCenter.x /= factor;
+    this.viewCenter.y /= factor;
+    this.targetCenter.x /= factor;
+    this.targetCenter.y /= factor;
+    this.centerStart.x /= factor;
+    this.centerStart.y /= factor;
+
+    this.viewScale *= factor;
+    this.zoomStartScale *= factor;
+    this.targetViewScale *= factor;
+  }
+
   /**
    * Draw the arc for a square
    * Arc always connects the same relative corners
@@ -308,6 +592,21 @@ export class Day03 extends BasePrompt {
   }
 
   cleanup() {
+    if (this.pendingTimeouts.length) {
+      this.pendingTimeouts.forEach((id) => clearTimeout(id));
+      this.pendingTimeouts = [];
+    }
+
+    if (this.audio && this.groupsCreated) {
+      Object.values(this.audioGroups).forEach((groupId) => {
+        this.audio.send('/g_freeAll', groupId);
+        this.audio.send('/n_free', groupId);
+      });
+      this.groupsCreated = false;
+    }
+
+    this.audioReady = false;
+
     if (this.bridge && this.bridge.sequencer) {
       this.bridge.sequencer.stop();
       this.bridge.sequencer.clear();

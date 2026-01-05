@@ -10,6 +10,8 @@ import { createBridge } from './framework/bridge.js';
 // Import prompts (add new prompts here as they're created)
 import { Day01 } from './prompts/day01.js';
 import { Day02 } from './prompts/day02.js';
+import { Day03 } from './prompts/day03.js';
+import { Day04 } from './prompts/day04.js';
 
 /**
  * Registry of available prompts
@@ -18,6 +20,8 @@ import { Day02 } from './prompts/day02.js';
 const PROMPTS = [
   { day: 1, name: 'Day 1: Polyrhythms', class: Day01 },
   { day: 2, name: 'Day 2: Layers', class: Day02 },
+  { day: 3, name: 'Day 3: Fibonacci Forever', class: Day03 },
+  { day: 4, name: 'Day 4: Low-Res Sequencer', class: Day04 },
 ];
 
 let currentP5Instance = null;

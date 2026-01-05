@@ -152,6 +152,8 @@ body {
 /* Canvas styling */
 #p5-container canvas {
   display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 /* Start Overlay */

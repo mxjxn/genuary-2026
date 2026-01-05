@@ -9,6 +9,7 @@ const DAY_OPTIONS = [
   { id: 'day1', label: 'Day 1: Polyrhythms', href: '/day1.html' },
   { id: 'day2', label: 'Day 2: Layers', href: '/day2.html' },
   { id: 'day3', label: 'Day 3: Fibonacci Forever', href: '/day3.html' },
+  { id: 'day4', label: 'Day 4: Low-Res Sequencer', href: '/day4.html' },
 ];
 
 function buildControlHub(repoUrl) {

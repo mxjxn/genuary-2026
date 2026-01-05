@@ -6,6 +6,7 @@ import { initSupersonic, getSupersonicInstance } from './framework/supersonic-se
 import { createP5Instance } from './framework/p5-setup.js';
 import { createBridge } from './framework/bridge.js';
 import { Day03 } from './prompts/day03.js';
+import { initDayControls } from './framework/day-controls.js';
 
 let currentP5Instance = null;
 let currentPrompt = null;
@@ -16,6 +17,7 @@ let bridge = null;
  * Initialize the application
  */
 async function init() {
+  initDayControls({ currentDay: 'day3' });
   try {
     // Initialize Supersonic
     console.log('Initializing Supersonic...');

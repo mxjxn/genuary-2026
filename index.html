@@ -51,6 +51,27 @@
       color: #888;
     }
 
+    .repo-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 32px;
+      padding: 10px 18px;
+      border-radius: 999px;
+      border: 1px solid #333;
+      color: #fff;
+      text-decoration: none;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .repo-link:hover {
+      border-color: #666;
+      transform: translateY(-1px);
+    }
+
     .days {
       list-style: none;
     }
@@ -90,6 +111,7 @@
   <div class="container">
     <h1>Genuary 2026</h1>
     <h2>by mxjxn</h2>
+    <a class="repo-link" href="https://github.com/mxjxn/genuary-2026" target="_blank" rel="noopener noreferrer">View the GitHub repo</a>
     <ul class="days">
       <li>
         <a href="/day1.html">
